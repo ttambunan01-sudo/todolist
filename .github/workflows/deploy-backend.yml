@@ -7,12 +7,42 @@ on:
       - completed
     branches:
       - main
+      - staging
+      - develop
 
 jobs:
-  deploy:
+  determine-environment:
     runs-on: ubuntu-latest
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    outputs:
+      environment: ${{ steps.env.outputs.environment }}
+      namespace: ${{ steps.env.outputs.namespace }}
+      overlay: ${{ steps.env.outputs.overlay }}
+    steps:
+      - name: Determine environment
+        id: env
+        run: |
+          BRANCH="${{ github.event.workflow_run.head_branch }}"
+          echo "Branch: $BRANCH"
+          if [[ "$BRANCH" == "main" ]]; then
+            echo "environment=production" >> $GITHUB_OUTPUT
+            echo "namespace=todolist-prod" >> $GITHUB_OUTPUT
+            echo "overlay=prod" >> $GITHUB_OUTPUT
+          elif [[ "$BRANCH" == "staging" ]]; then
+            echo "environment=staging" >> $GITHUB_OUTPUT
+            echo "namespace=todolist-staging" >> $GITHUB_OUTPUT
+            echo "overlay=staging" >> $GITHUB_OUTPUT
+          else
+            echo "environment=development" >> $GITHUB_OUTPUT
+            echo "namespace=todolist-dev" >> $GITHUB_OUTPUT
+            echo "overlay=dev" >> $GITHUB_OUTPUT
+          fi
 
+  deploy-dev:
+    needs: determine-environment
+    if: needs.determine-environment.outputs.environment == 'development'
+    runs-on: ubuntu-latest
+    environment: development
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -28,77 +58,43 @@ jobs:
           echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > $HOME/.kube/config
           chmod 600 $HOME/.kube/config
           kubectl cluster-info
-          kubectl version --client
 
       - name: Create namespace
         run: |
           kubectl create namespace todolist-dev --dry-run=client -o yaml | kubectl apply -f -
 
-      - name: Deploy PostgreSQL (if not exists)
+      - name: Deploy with Kustomize
         run: |
-          if ! kubectl get statefulset postgres -n todolist-dev &> /dev/null; then
-            echo "Deploying PostgreSQL..."
-            kubectl apply -f k8s/postgres/
-            kubectl wait --for=condition=ready pod -l app=postgres -n todolist-dev --timeout=300s
-          else
-            echo "PostgreSQL already running"
-          fi
+          kubectl apply -k k8s/overlays/dev
 
-      - name: Deploy Redis (if not exists)
-        run: |
-          if ! kubectl get deployment redis -n todolist-dev &> /dev/null; then
-            echo "Deploying Redis..."
-            kubectl apply -f k8s/redis/
-            kubectl wait --for=condition=ready pod -l app=redis -n todolist-dev --timeout=120s
-          else
-            echo "Redis already running"
-          fi
-
-      - name: Deploy Backend Configuration
-        run: |
-          kubectl apply -f k8s/backend/configmap.yaml
-          kubectl apply -f k8s/backend/service.yaml
-          kubectl apply -f k8s/backend/hpa.yaml
-
-      - name: Deploy Backend Application
+      - name: Update Backend Image
         run: |
           COMMIT_SHA="${{ github.event.workflow_run.head_sha }}"
           SHORT_SHA="${COMMIT_SHA:0:7}"
-
           echo "Deploying backend with image: ttambunan01/todolist-backend:git-${SHORT_SHA}"
-
-          kubectl apply -f k8s/backend/deployment.yaml
-
           kubectl set image deployment/backend \
             backend=ttambunan01/todolist-backend:git-${SHORT_SHA} \
             -n todolist-dev
-
           kubectl rollout status deployment/backend -n todolist-dev --timeout=300s
 
       - name: Health Check
         run: |
           kubectl wait --for=condition=ready pod -l app=backend -n todolist-dev --timeout=120s
-
           BACKEND_POD=$(kubectl get pod -l app=backend -n todolist-dev -o jsonpath="{.items[0].metadata.name}")
-
           kubectl exec -n todolist-dev $BACKEND_POD -- curl -f http://localhost:8080/actuator/health || {
             echo "Health check failed!"
             exit 1
           }
-
           echo "Health check passed!"
 
       - name: Deployment Summary
         if: success()
         run: |
           echo "=== Deployment Successful ==="
+          echo "Environment: Development"
           echo "Namespace: todolist-dev"
-          echo "Backend Image: ttambunan01/todolist-backend:git-${GITHUB_SHA:0:7}"
           echo ""
-          echo "=== Pods Status ==="
           kubectl get pods -n todolist-dev
-          echo ""
-          echo "=== Services ==="
           kubectl get svc -n todolist-dev
 
       - name: Rollback on Failure
@@ -107,3 +103,136 @@ jobs:
           echo "Deployment failed! Rolling back..."
           kubectl rollout undo deployment/backend -n todolist-dev
           kubectl rollout status deployment/backend -n todolist-dev --timeout=180s
+
+  deploy-staging:
+    needs: determine-environment
+    if: needs.determine-environment.outputs.environment == 'staging'
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.28.0'
+
+      - name: Configure kubectl
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > $HOME/.kube/config
+          chmod 600 $HOME/.kube/config
+          kubectl cluster-info
+
+      - name: Create namespace
+        run: |
+          kubectl create namespace todolist-staging --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Deploy with Kustomize
+        run: |
+          kubectl apply -k k8s/overlays/staging
+
+      - name: Update Backend Image
+        run: |
+          COMMIT_SHA="${{ github.event.workflow_run.head_sha }}"
+          SHORT_SHA="${COMMIT_SHA:0:7}"
+          echo "Deploying backend with image: ttambunan01/todolist-backend:git-${SHORT_SHA}"
+          kubectl set image deployment/backend \
+            backend=ttambunan01/todolist-backend:git-${SHORT_SHA} \
+            -n todolist-staging
+          kubectl rollout status deployment/backend -n todolist-staging --timeout=300s
+
+      - name: Health Check
+        run: |
+          kubectl wait --for=condition=ready pod -l app=backend -n todolist-staging --timeout=120s
+          BACKEND_POD=$(kubectl get pod -l app=backend -n todolist-staging -o jsonpath="{.items[0].metadata.name}")
+          kubectl exec -n todolist-staging $BACKEND_POD -- curl -f http://localhost:8080/actuator/health || {
+            echo "Health check failed!"
+            exit 1
+          }
+          echo "Health check passed!"
+
+      - name: Deployment Summary
+        if: success()
+        run: |
+          echo "=== Deployment Successful ==="
+          echo "Environment: Staging"
+          echo "Namespace: todolist-staging"
+          echo ""
+          kubectl get pods -n todolist-staging
+          kubectl get svc -n todolist-staging
+
+      - name: Rollback on Failure
+        if: failure()
+        run: |
+          echo "Deployment failed! Rolling back..."
+          kubectl rollout undo deployment/backend -n todolist-staging
+          kubectl rollout status deployment/backend -n todolist-staging --timeout=180s
+
+  deploy-prod:
+    needs: determine-environment
+    if: needs.determine-environment.outputs.environment == 'production'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.28.0'
+
+      - name: Configure kubectl
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > $HOME/.kube/config
+          chmod 600 $HOME/.kube/config
+          kubectl cluster-info
+
+      - name: Create namespace
+        run: |
+          kubectl create namespace todolist-prod --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Deploy with Kustomize
+        run: |
+          kubectl apply -k k8s/overlays/prod
+
+      - name: Update Backend Image
+        run: |
+          COMMIT_SHA="${{ github.event.workflow_run.head_sha }}"
+          SHORT_SHA="${COMMIT_SHA:0:7}"
+          echo "Deploying backend with image: ttambunan01/todolist-backend:git-${SHORT_SHA}"
+          kubectl set image deployment/backend \
+            backend=ttambunan01/todolist-backend:git-${SHORT_SHA} \
+            -n todolist-prod
+          kubectl rollout status deployment/backend -n todolist-prod --timeout=300s
+
+      - name: Health Check
+        run: |
+          kubectl wait --for=condition=ready pod -l app=backend -n todolist-prod --timeout=120s
+          BACKEND_POD=$(kubectl get pod -l app=backend -n todolist-prod -o jsonpath="{.items[0].metadata.name}")
+          kubectl exec -n todolist-prod $BACKEND_POD -- curl -f http://localhost:8080/actuator/health || {
+            echo "Health check failed!"
+            exit 1
+          }
+          echo "Health check passed!"
+
+      - name: Deployment Summary
+        if: success()
+        run: |
+          echo "=== Deployment Successful ==="
+          echo "Environment: Production"
+          echo "Namespace: todolist-prod"
+          echo ""
+          kubectl get pods -n todolist-prod
+          kubectl get svc -n todolist-prod
+
+      - name: Rollback on Failure
+        if: failure()
+        run: |
+          echo "Deployment failed! Rolling back..."
+          kubectl rollout undo deployment/backend -n todolist-prod
+          kubectl rollout status deployment/backend -n todolist-prod --timeout=180s
