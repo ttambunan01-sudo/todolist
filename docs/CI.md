@@ -33,6 +33,20 @@ The TodoList Backend service uses GitHub Actions for continuous integration and 
                │
                v Yes
        ┌────────────────┐
+       │sonarcloud-scan │ (PRs & main branch)
+       ├────────────────┤
+       │ • Quality Check│
+       │ • Security Scan│
+       │ • Coverage     │
+       │ • Tech Debt    │
+       └───────┬────────┘
+               │
+      [Quality Gate?]
+               │
+               ├─ Fail ──> ❌ Pipeline Fails
+               │
+               v Pass
+       ┌────────────────┐
        │docker-build-push│ (main branch only)
        ├────────────────┤
        │ • Build Image  │
@@ -89,14 +103,41 @@ The CI pipeline runs on:
 
 **Duration:** ~3-5 minutes
 
-### Job 2: docker-build-push
+### Job 2: sonarcloud-scan
+
+**Purpose:** Analyze code quality, security, and coverage with SonarCloud
+
+**Conditions:**
+- Runs on pull requests and pushes to `main` branch
+- Requires `build-and-test` job to succeed
+
+**Steps:**
+
+1. **Checkout code** - With full git history for better analysis
+2. **Set up JDK 21** - Required for SonarCloud scanner
+3. **Build and run tests with coverage** - Generates JaCoCo reports
+4. **SonarCloud Scan** - Analyzes code quality and security
+
+**Quality Metrics Analyzed:**
+- Code coverage
+- Code smells
+- Bugs and vulnerabilities
+- Security hotspots
+- Technical debt
+- Duplicated code
+
+**Duration:** ~2-4 minutes
+
+See [QUALITY_GATES.md](QUALITY_GATES.md) for detailed quality gates documentation.
+
+### Job 3: docker-build-push
 
 **Purpose:** Build and publish Docker image to Docker Hub
 
 **Conditions:**
 - Only runs on `push` events
 - Only runs on `main` branch
-- Requires `build-and-test` job to succeed
+- Requires both `build-and-test` and `sonarcloud-scan` jobs to succeed
 
 **Steps:**
 
@@ -120,6 +161,7 @@ Configure these in GitHub repository settings:
 |------------|-------------|---------|
 | `DOCKERHUB_USERNAME` | Docker Hub username | `ttambunan01` |
 | `DOCKERHUB_TOKEN` | Docker Hub access token | `dckr_pat_xxxxx...` |
+| `SONAR_TOKEN` | SonarCloud authentication token | `sqp_xxxxx...` |
 
 **To add secrets:**
 1. Go to `https://github.com/ttambunan01-sudo/todolist/settings/secrets/actions`
@@ -380,10 +422,12 @@ Track these metrics:
    - OWASP dependency check
    - Secret scanning
 
-2. **Quality Gates**
-   - SonarQube integration
-   - Code smell detection
-   - Technical debt tracking
+2. **Quality Gates** ✅ IMPLEMENTED
+   - ✅ SonarCloud integration (see [QUALITY_GATES.md](QUALITY_GATES.md))
+   - ✅ Code smell detection
+   - ✅ Technical debt tracking
+   - ✅ Security vulnerability scanning
+   - ✅ Code coverage reporting
 
 3. **Deployment Automation**
    - Kubernetes deployment workflow
@@ -403,8 +447,10 @@ Track these metrics:
 ## Related Documentation
 
 - [README.md](../README.md) - Project overview and quick start
+- [QUALITY_GATES.md](QUALITY_GATES.md) - Comprehensive quality gates documentation
 - [Deployment Guide](DEPLOYMENT.md) - Kubernetes deployment (coming soon)
 - [API Documentation](http://localhost:8080/swagger-ui.html) - Swagger UI (when running)
+- [SonarCloud Dashboard](https://sonarcloud.io/project/overview?id=ttambunan01-sudo_todolist) - Code quality metrics
 
 ## Support
 
