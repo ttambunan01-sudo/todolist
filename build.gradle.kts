@@ -3,6 +3,7 @@ plugins {
 	id("org.springframework.boot") version "4.0.0"
 	id("io.spring.dependency-management") version "1.1.7"
 	jacoco
+	id("org.sonarqube") version "6.0.1.5171"
 }
 
 group = "com.miniproject"
@@ -80,5 +81,30 @@ tasks.jacocoTestCoverageVerification {
 				minimum = "0.50".toBigDecimal()
 			}
 		}
+	}
+}
+
+// SonarQube Configuration
+sonar {
+	properties {
+		property("sonar.projectKey", "ttambunan01-sudo_todolist")
+		property("sonar.organization", "ttambunan01-sudo")
+		property("sonar.host.url", "https://sonarcloud.io")
+
+		// Code coverage from JaCoCo
+		property("sonar.coverage.jacoco.xmlReportPaths", "build/reports/jacoco/test/jacocoTestReport.xml")
+
+		// Source and test directories
+		property("sonar.sources", "src/main/java")
+		property("sonar.tests", "src/test/java")
+		property("sonar.java.binaries", "build/classes/java/main")
+		property("sonar.java.test.binaries", "build/classes/java/test")
+
+		// Exclusions (config, DTOs, entities are low-value for code quality)
+		property("sonar.exclusions", "**/config/**,**/dto/**,**/entity/**,**/enums/**")
+
+		// Java version
+		property("sonar.java.source", "21")
+		property("sonar.java.target", "21")
 	}
 }
