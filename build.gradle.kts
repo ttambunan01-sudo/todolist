@@ -3,7 +3,6 @@ plugins {
 	id("org.springframework.boot") version "4.0.0"
 	id("io.spring.dependency-management") version "1.1.7"
 	jacoco
-	id("org.sonarqube") version "4.4.1.3373"
 }
 
 group = "com.miniproject"
@@ -84,27 +83,5 @@ tasks.jacocoTestCoverageVerification {
 	}
 }
 
-// SonarQube Configuration
-sonar {
-	properties {
-		property("sonar.projectKey", "ttambunan01-sudo_todolist")
-		property("sonar.organization", "ttambunan01-sudo")
-		property("sonar.host.url", "https://sonarcloud.io")
-
-		// Code coverage from JaCoCo
-		property("sonar.coverage.jacoco.xmlReportPaths", "build/reports/jacoco/test/jacocoTestReport.xml")
-
-		// Source and test directories
-		property("sonar.sources", "src/main/java")
-		property("sonar.tests", "src/test/java")
-		property("sonar.java.binaries", "build/classes/java/main")
-		property("sonar.java.test.binaries", "build/classes/java/test")
-
-		// Exclusions (config, DTOs, entities are low-value for code quality)
-		property("sonar.exclusions", "**/config/**,**/dto/**,**/entity/**,**/enums/**")
-
-		// Java version
-		property("sonar.java.source", "21")
-		property("sonar.java.target", "21")
-	}
-}
+// SonarQube analysis is configured in GitHub Actions workflow
+// using the official SonarCloud GitHub Action
