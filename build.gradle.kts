@@ -27,6 +27,10 @@ dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-data-redis")
 	implementation("org.springframework.boot:spring-boot-starter-cache")
 	implementation("org.springframework.boot:spring-boot-starter-validation")
+	implementation("org.springframework.boot:spring-boot-starter-actuator")
+
+	// Monitoring & Metrics
+	implementation("io.micrometer:micrometer-registry-prometheus")
 
 	// Database
 	runtimeOnly("org.postgresql:postgresql")
@@ -78,3 +82,6 @@ tasks.jacocoTestCoverageVerification {
 		}
 	}
 }
+
+// SonarQube analysis is configured in GitHub Actions workflow
+// using the official SonarCloud GitHub Action
